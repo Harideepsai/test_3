@@ -1,0 +1,10 @@
+{
+  "name": "Remix Remix Remix Remix Remix 3D ULPIN \u0026 Vertical Property Mapping System",
+  "description": "Smart India Hackathon 2026 (SIH26011) Prototype for 3D ULPIN generation, vertical property unit mapping, cadastral GIS records, and interactive 3D spatial volumetric cadastre.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
