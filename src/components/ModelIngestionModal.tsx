@@ -67,6 +67,7 @@ export const ModelIngestionModal: React.FC<ModelIngestionModalProps> = ({
 
   // Common Cadastral Fields
   const [surveyNumber, setSurveyNumber] = useState(`SY-${Math.floor(100 + Math.random() * 900)}/2B`);
+  const [buildingName, setBuildingName] = useState('Sri Krishna Residency');
   const [address, setAddress] = useState(
     `Plot at ${activeCoords.lat.toFixed(4)}, ${activeCoords.lng.toFixed(4)}, Hyderabad`
   );
@@ -262,6 +263,8 @@ export const ModelIngestionModal: React.FC<ModelIngestionModalProps> = ({
         method: selectedMethod,
         coordinates: activeCoords,
         surveyNumber: surveyNumber.trim() || `SY-${Math.floor(100 + Math.random() * 900)}/A`,
+        buildingName: buildingName.trim() || `Structure on Survey ${surveyNumber.trim()}`,
+        building_name: buildingName.trim() || `Structure on Survey ${surveyNumber.trim()}`,
         address: address.trim(),
         plotArea,
         totalFloors,
@@ -366,18 +369,103 @@ export const ModelIngestionModal: React.FC<ModelIngestionModalProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* LEFT COLUMN: Geospatial Map Window, Ingestion Workflows & Inputs */}
             <div className="lg:col-span-7 space-y-5">
-              {/* 1. Small Embedded Window for GPS, Google Maps Link & Map Pin */}
-              <ParcelMapPicker
-                latitude={activeCoords.lat}
-                longitude={activeCoords.lng}
-                onChange={(coords) => setActiveCoords(coords)}
-                onAddressSuggest={(addr) => setAddress(addr)}
-              />
+              {/* 1. Geospatial Map Window with Draggable Pin */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center text-[10px]">1</span>
+                    <span>Geospatial Map Window & Location Anchor</span>
+                  </span>
+                </div>
+                <ParcelMapPicker
+                  latitude={activeCoords.lat}
+                  longitude={activeCoords.lng}
+                  onChange={(coords) => {
+                    setActiveCoords(coords);
+                    setAddress((prev) => {
+                      if (!prev || prev.startsWith('Plot at') || prev.startsWith('Parcel at')) {
+                        return `Plot at ${coords.lat.toFixed(5)}° N, ${coords.lng.toFixed(5)}° E, Hyderabad`;
+                      }
+                      return prev;
+                    });
+                  }}
+                  onAddressSuggest={(addr) => setAddress(addr)}
+                />
+              </div>
 
-              {/* 2. Select 3D Ingestion Workflow Tabs */}
+              {/* 2. Cadastral Revenue Records */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5 text-xs font-mono">
+                    <span className="w-5 h-5 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center text-[10px]">2</span>
+                    <span>Cadastral Revenue & Parcel Records</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Official Revenue Identifiers</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] text-slate-700 font-semibold mb-1 flex items-center justify-between">
+                      <span>Building / Project Name <span className="text-blue-700 font-mono">*</span></span>
+                      <span className="text-[10px] font-normal text-slate-500 font-mono">Editable by Surveyor</span>
+                    </label>
+                    <input
+                      id="input-surveyor-building-name"
+                      type="text"
+                      value={buildingName}
+                      onChange={(e) => setBuildingName(e.target.value)}
+                      placeholder="e.g. Sri Krishna Residency, Cyber Gateway Tower A"
+                      required
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-semibold focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] focus:outline-none shadow-2xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-slate-600 font-mono mb-1">
+                      Cadastral Survey Number:
+                    </label>
+                    <input
+                      type="text"
+                      value={surveyNumber}
+                      onChange={(e) => setSurveyNumber(e.target.value)}
+                      placeholder="e.g. SY-402/1B"
+                      required
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-slate-600 font-mono mb-1">
+                      Plot Area (sq. metres):
+                    </label>
+                    <input
+                      type="number"
+                      value={plotArea}
+                      onChange={(e) => setPlotArea(parseFloat(e.target.value) || 500)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] text-slate-600 font-mono mb-1">
+                      Property Address:
+                    </label>
+                    <input
+                      type="text"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      required
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-sans focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Select 3D Ingestion Workflow Tabs */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2 font-mono">
-                  Select 3D Ingestion Workflow:
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-[#1e3a8a] text-white flex items-center justify-center text-[10px]">3</span>
+                  <span>Select 3D Ingestion Workflow:</span>
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   {/* Method 1: 2D Blueprint */}
@@ -990,48 +1078,6 @@ export const ModelIngestionModal: React.FC<ModelIngestionModalProps> = ({
                       </div>
                     )}
                   </div>
-                </div>
-              </div>
-
-              {/* 4. Cadastral Revenue Records */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-[11px] text-slate-600 font-mono mb-1">
-                    Cadastral Survey Number:
-                  </label>
-                  <input
-                    type="text"
-                    value={surveyNumber}
-                    onChange={(e) => setSurveyNumber(e.target.value)}
-                    placeholder="e.g. SY-402/1B"
-                    required
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] text-slate-600 font-mono mb-1">
-                    Plot Area (sq. metres):
-                  </label>
-                  <input
-                    type="number"
-                    value={plotArea}
-                    onChange={(e) => setPlotArea(parseFloat(e.target.value) || 500)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] text-slate-600 font-mono mb-1">
-                    Property Address:
-                  </label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    required
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 font-sans focus:border-[#1e3a8a] focus:bg-white focus:outline-none"
-                  />
                 </div>
               </div>
             </div>

@@ -107,6 +107,7 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
 
   // Active building reference
   const currentBuilding = activeBuilding || enrichedProperty?.building || null;
+  const targetBuildingId = currentBuilding?.building_id || currentBuilding?.id;
   const activePropId = enrichedProperty?.property.property_id || '';
   const activeGeom = enrichedProperty?.verticalGeometry || {
     width: 6.8,
@@ -468,8 +469,19 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       return;
     }
 
-    // Precalculate properties to render
-    const propertiesToRender = allProperties.length > 0 ? allProperties : enrichedProperty ? [enrichedProperty] : [];
+    // Precalculate properties to render: strictly restrict to displaying building flats only
+    const rawList = allProperties.length > 0 ? allProperties : enrichedProperty ? [enrichedProperty] : [];
+    const propertiesToRender = targetBuildingId
+      ? rawList.filter((p) => {
+          const pBldId =
+            p.building?.building_id ||
+            p.building?.id ||
+            p.property?.building_id ||
+            p.floor?.building_id ||
+            p.location?.building_id;
+          return pBldId === targetBuildingId;
+        })
+      : rawList;
 
     // 1. Overall Building Envelope
     const buildingWidth = currentBuilding?.plot_area ? Math.min(24, Math.sqrt(currentBuilding.plot_area * 0.6)) : 16.0;
@@ -1210,10 +1222,17 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
                 const baseY = 340 - stepY;
                 const isSelectedFloor = enrichedProperty?.floor.floor_number === floor.floor_number;
 
-                // Units on this floor
-                const floorUnits = allProperties
-                  ? allProperties.filter((p) => p.floor.floor_number === floor.floor_number)
-                  : [];
+                // Units on this floor (strictly filtered to this displaying building)
+                const floorUnits = (allProperties || []).filter((p) => {
+                  const pBldId =
+                    p.building?.building_id ||
+                    p.building?.id ||
+                    p.property?.building_id ||
+                    p.floor?.building_id ||
+                    p.location?.building_id;
+                  const matchesBld = !targetBuildingId || pBldId === targetBuildingId;
+                  return matchesBld && p.floor.floor_number === floor.floor_number;
+                });
 
                 return (
                   <g key={`blueprint-floor-${floor.floor_id || fIdx}`}>

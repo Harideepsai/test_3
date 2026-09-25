@@ -73,6 +73,7 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [buildingName, setBuildingName] = useState(currentBld.building_name || currentBld.name || '');
   const [surveyNumber, setSurveyNumber] = useState(currentBld.survey_number);
   const [address, setAddress] = useState(currentBld.address);
   const [latitude, setLatitude] = useState(currentBld.latitude);
@@ -91,6 +92,7 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
 
   // Sync form state when building changes
   useEffect(() => {
+    setBuildingName(currentBld.building_name || currentBld.name || '');
     setSurveyNumber(currentBld.survey_number);
     setAddress(currentBld.address);
     setLatitude(currentBld.latitude);
@@ -113,6 +115,8 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
     setIsSaving(true);
     try {
       await onUpdateBuilding(currentBld.building_id, {
+        name: buildingName.trim(),
+        building_name: buildingName.trim(),
         survey_number: surveyNumber,
         address,
         latitude: Number(latitude),
@@ -339,7 +343,7 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
             )}
           </div>
           <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight mt-1">
-            Building {currentBld.building_id}: Parcel Plot, 3D Asset & Vertical Strata
+            {currentBld.building_name || currentBld.name || `Building ${currentBld.building_id}`}: Parcel Plot, 3D Asset & Vertical Strata
           </h1>
           <p className="text-xs text-slate-600 mt-0.5 max-w-2xl">
             Official cadastral parcel definition, geospatial coordinate positioning, binary 3D volumetric model database storage, and floor slab stratification standards.
@@ -358,7 +362,7 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
               >
                 {buildings.map((b) => (
                   <option key={b.building_id || b.id} value={b.building_id || b.id}>
-                    {b.building_id} (Sy. {b.survey_number})
+                    {b.building_id} {b.building_name || b.name ? `- ${b.building_name || b.name}` : ''} (Sy. {b.survey_number})
                   </option>
                 ))}
               </select>
@@ -556,6 +560,19 @@ export const BuildingDetailsView: React.FC<BuildingDetailsViewProps> = ({
               1. Spatial Location & Dimensions
             </legend>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Building / Project Name
+                </label>
+                <input
+                  type="text"
+                  value={buildingName}
+                  onChange={(e) => setBuildingName(e.target.value)}
+                  placeholder="e.g. Sri Krishna Residency"
+                  className="w-full px-3 py-1.5 rounded bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#1e3a8a] focus:border-[#1e3a8a]"
+                />
+              </div>
+
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
                   Survey Number <span className="text-rose-600">*</span>

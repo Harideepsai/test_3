@@ -191,9 +191,12 @@ export const SurveyorSubmissionsView: React.FC<SurveyorSubmissionsViewProps> = (
                 {/* Top Row: Building Info & Current Status */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-base text-slate-900">
-                        Building {bld.building_id}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-sans font-bold text-base text-slate-900">
+                        {bld.building_name || bld.name || `Building ${bld.building_id}`}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-50 text-[#1e3a8a] border border-blue-200">
+                        ID: {bld.building_id}
                       </span>
                       <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-300">
                         Survey No. {bld.survey_number}

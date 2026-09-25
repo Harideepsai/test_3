@@ -428,8 +428,18 @@ export class CadastreService {
     let closestBuilding: Building | null = null;
     let minDistance = Infinity;
 
+    let nearestOverallBuilding: Building | null = null;
+    let minOverallDistance = Infinity;
+
     for (const bld of cache.buildings) {
+      if (typeof bld.latitude !== 'number' || typeof bld.longitude !== 'number') continue;
       const dist = calculateGeodesicDistanceMeters(lat, lng, bld.latitude, bld.longitude);
+
+      if (dist < minOverallDistance) {
+        minOverallDistance = dist;
+        nearestOverallBuilding = bld;
+      }
+
       if (dist <= radiusMeters && dist < minDistance) {
         minDistance = dist;
         closestBuilding = bld;
@@ -444,6 +454,8 @@ export class CadastreService {
         searchRadiusMeters: radiusMeters,
         building: closestBuilding,
         distanceMeters: Math.round(minDistance * 10) / 10,
+        nearestAvailableBuilding: closestBuilding,
+        nearestDistanceMeters: Math.round(minDistance * 10) / 10,
         enrichedProperty: fullBuilding.enrichedProperty,
         allProperties: fullBuilding.allProperties,
         properties: fullBuilding.allProperties,
@@ -457,6 +469,8 @@ export class CadastreService {
       searchCoordinates: { lat, lng },
       searchRadiusMeters: radiusMeters,
       building: null,
+      nearestAvailableBuilding: nearestOverallBuilding,
+      nearestDistanceMeters: Math.round(minOverallDistance * 10) / 10,
     };
   }
 
@@ -508,9 +522,13 @@ export class CadastreService {
       }
     }
 
+    const bldName = payload.buildingName?.trim() || payload.building_name?.trim() || `Structure ${bldCode}`;
+
     const newBuilding: Building = {
       id: bldId,
       building_id: bldCode,
+      name: bldName,
+      building_name: bldName,
       application_number: appNumber,
       survey_number: rawSurvey,
       stored_3d_file_name: storedFileName || `${safeSurvey}_model.glb`,

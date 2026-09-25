@@ -308,6 +308,30 @@ class CadastreApiService {
       };
     }
   }
+
+  async resolveMapsUrl(url: string): Promise<{
+    success: boolean;
+    lat?: number;
+    lng?: number;
+    source?: string;
+    resolvedUrl?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/resolve-maps-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const json = await res.json();
+      return json;
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Failed to resolve Google Maps link',
+      };
+    }
+  }
 }
 
 export const api = new CadastreApiService();

@@ -9,3 +9,46 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Leaflet map styles inside modals and responsive layout containers */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  background-color: #e2e8f0;
+  z-index: 1;
+}
+
+.interactive-cadastral-pin,
+.google-maps-draggable-pin {
+  background: transparent !important;
+  border: none !important;
+  cursor: grab !important;
+}
+
+.google-maps-draggable-pin:active {
+  cursor: grabbing !important;
+}
+
+.google-maps-draggable-pin svg {
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+  transition: transform 0.1s ease-out;
+}
+
+.google-maps-draggable-pin:active svg {
+  transform: scale(1.1) translateY(-4px);
+}
+
+.custom-pin-tooltip {
+  background-color: rgba(15, 23, 42, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 11px !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+.custom-pin-tooltip::before {
+  border-top-color: rgba(15, 23, 42, 0.92) !important;
+}

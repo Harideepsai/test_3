@@ -319,7 +319,6 @@ export default function App() {
                 <PlannerQueueView
                   key={`planner-view-${cadastreRefreshKey}`}
                   refreshTrigger={cadastreRefreshKey}
-                  onOpenModelIngestion={() => setIsIngestionModalOpen(true)}
                   onSelectBuildingForMap={() => setCurrentTab('geo-cadastre-explorer')}
                 />
               )}
@@ -391,6 +390,8 @@ export default function App() {
                     onSelectProperty={setSelectedPropertyId}
                     onCreateProperty={handleCreateProperty}
                     onRefresh={loadCadastreData}
+                    buildings={buildings}
+                    allFloors={allFloors}
                   />
                 </div>
               )}

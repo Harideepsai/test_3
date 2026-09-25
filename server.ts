@@ -1191,6 +1191,185 @@ async function startServer() {
     res.json({ success: true, count: list.length, data: list });
   });
 
+  // Helper: Resolve coordinates from Google Maps URLs (including shortlinks like maps.app.goo.gl)
+  async function resolveGoogleMapsCoordinates(inputUrl: string): Promise<{
+    lat: number;
+    lng: number;
+    source: string;
+    resolvedUrl: string;
+  } | null> {
+    function parseCoordinatesFromString(str: string) {
+      if (!str) return null;
+      let decoded = str;
+      try {
+        decoded = decodeURIComponent(str);
+      } catch {
+        decoded = str;
+      }
+
+      // 1. Exact 3D/4D pin token (!3d<lat>!4d<lng>)
+      const d3d4 = decoded.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/);
+      if (d3d4) {
+        const lat = parseFloat(d3d4[1]);
+        const lng = parseFloat(d3d4[2]);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Google Maps Pin Data (!3d/!4d)' };
+        }
+      }
+
+      // 2. Query param ?q=lat,lng or &q=lat,lng or &ll=lat,lng
+      const qMatch = decoded.match(/[?&](?:q|ll|sll|daddr)=(-?\d+\.?\d*)[,+](-?\d+\.?\d*)/i);
+      if (qMatch) {
+        const lat = parseFloat(qMatch[1]);
+        const lng = parseFloat(qMatch[2]);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Google Maps Query Parameter (?q=)' };
+        }
+      }
+
+      // 3. DMS string: e.g. 17°25'20.2"N+78°38'40.7"E
+      const dmsMatch = decoded.match(/(\d+)°(\d+)['\u2019]([\d.]+)["\u201D]([NS])\s*[+, ]\s*(\d+)°(\d+)['\u2019]([\d.]+)["\u201D]([EW])/i);
+      if (dmsMatch) {
+        const latDeg = parseFloat(dmsMatch[1]), latMin = parseFloat(dmsMatch[2]), latSec = parseFloat(dmsMatch[3]), latDir = dmsMatch[4].toUpperCase();
+        const lngDeg = parseFloat(dmsMatch[5]), lngMin = parseFloat(dmsMatch[6]), lngSec = parseFloat(dmsMatch[7]), lngDir = dmsMatch[8].toUpperCase();
+        let lat = latDeg + latMin / 60 + latSec / 3600;
+        if (latDir === 'S') lat = -lat;
+        let lng = lngDeg + lngMin / 60 + lngSec / 3600;
+        if (lngDir === 'W') lng = -lng;
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Google Maps DMS Coordinates' };
+        }
+      }
+
+      // 4. Viewport center @lat,lng,zoom
+      const atMatch = decoded.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (atMatch) {
+        const lat = parseFloat(atMatch[1]);
+        const lng = parseFloat(atMatch[2]);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Google Maps Viewport Center (@lat,lng)' };
+        }
+      }
+
+      // 5. Place path /place/.../lat,lng
+      const placeMatch = decoded.match(/\/place\/[^/]*?(-?\d+\.\d+)[,+](-?\d+\.\d+)/);
+      if (placeMatch) {
+        const lat = parseFloat(placeMatch[1]);
+        const lng = parseFloat(placeMatch[2]);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Google Maps Place Path' };
+        }
+      }
+
+      // 6. Direct numerical coordinates: "17.42228, 78.64463"
+      const directMatch = decoded.match(/^\s*(-?\d+\.?\d*)\s*[,;\s]\s*(-?\d+\.?\d*)\s*$/);
+      if (directMatch) {
+        const lat = parseFloat(directMatch[1]);
+        const lng = parseFloat(directMatch[2]);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          return { lat, lng, source: 'Direct Coordinates' };
+        }
+      }
+
+      return null;
+    }
+
+    let curUrl = inputUrl.trim();
+    let resolvedUrl = curUrl;
+
+    // Check if string already contains coordinates directly
+    const directParsed = parseCoordinatesFromString(curUrl);
+    if (directParsed) {
+      return { ...directParsed, resolvedUrl };
+    }
+
+    if (!curUrl.startsWith('http://') && !curUrl.startsWith('https://')) {
+      curUrl = 'https://' + curUrl;
+    }
+
+    // Follow HTTP redirects for shortlinks (e.g. maps.app.goo.gl, goo.gl/maps, etc.)
+    for (let hop = 0; hop < 6; hop++) {
+      const parsed = parseCoordinatesFromString(curUrl);
+      if (parsed) {
+        return { ...parsed, resolvedUrl: curUrl };
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(curUrl, {
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        });
+        clearTimeout(timeout);
+
+        const locationHeader = res.headers.get('location');
+        if (locationHeader) {
+          const nextUrl = locationHeader.startsWith('/') ? new URL(locationHeader, curUrl).toString() : locationHeader;
+          curUrl = nextUrl;
+          resolvedUrl = curUrl;
+          const fromLoc = parseCoordinatesFromString(curUrl);
+          if (fromLoc) {
+            return { ...fromLoc, resolvedUrl: curUrl };
+          }
+        } else {
+          // Status 200 or body with meta refresh / script redirect / og:url
+          const html = await res.text();
+          const fromHtml = parseCoordinatesFromString(html);
+          if (fromHtml) {
+            return { ...fromHtml, resolvedUrl: curUrl };
+          }
+
+          // Meta refresh check: <meta http-equiv="refresh" content="0;url=...">
+          const metaMatch = html.match(/content=["']\d+;\s*url=([^"']+)["']/i);
+          if (metaMatch && metaMatch[1]) {
+            curUrl = metaMatch[1];
+            resolvedUrl = curUrl;
+            const fromMeta = parseCoordinatesFromString(curUrl);
+            if (fromMeta) return { ...fromMeta, resolvedUrl: curUrl };
+          }
+          break;
+        }
+      } catch (fetchErr) {
+        console.warn('URL redirect hop error:', fetchErr);
+        break;
+      }
+    }
+
+    const finalParsed = parseCoordinatesFromString(curUrl);
+    if (finalParsed) {
+      return { ...finalParsed, resolvedUrl: curUrl };
+    }
+    return null;
+  }
+
+  // Google Maps URL Resolver & Coordinate Extraction Endpoint
+  app.all('/api/resolve-maps-url', async (req, res) => {
+    try {
+      const inputUrl = (req.body?.url || req.query?.url || '').toString().trim();
+      if (!inputUrl) {
+        return res.status(400).json({ success: false, error: 'URL is required' });
+      }
+
+      const result = await resolveGoogleMapsCoordinates(inputUrl);
+      if (result) {
+        return res.json({ success: true, ...result });
+      }
+
+      return res.status(422).json({
+        success: false,
+        error: 'Could not extract valid coordinates from Google Maps link. Please verify URL or enter manual coordinates.',
+      });
+    } catch (err: any) {
+      console.error('Error in /api/resolve-maps-url:', err);
+      return res.status(500).json({ success: false, error: err.message || 'Internal server error resolving URL' });
+    }
+  });
+
   // Update building coordinates / attributes
   app.put('/api/buildings/:id', (req, res) => {
     const bldId = req.params.id;
@@ -1200,6 +1379,8 @@ async function startServer() {
     }
 
     const {
+      name,
+      building_name,
       survey_number,
       address,
       latitude,
@@ -1215,6 +1396,8 @@ async function startServer() {
       deed_reference,
       ulpin,
     } = req.body;
+    if (name !== undefined) bld.name = name;
+    if (building_name !== undefined) bld.building_name = building_name;
     if (survey_number !== undefined) bld.survey_number = survey_number;
     if (address !== undefined) bld.address = address;
     if (latitude !== undefined) bld.latitude = Number(latitude);

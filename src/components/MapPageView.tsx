@@ -53,6 +53,23 @@ export const MapPageView: React.FC<MapPageViewProps> = ({
 
   const isSelected = !!enrichedProperty && enrichedProperty.property.property_id === selectedPropertyId;
 
+  // Filter properties and floors to strictly include only displaying building flats
+  const currentBldId = enrichedProperty?.building?.building_id || enrichedProperty?.building?.id;
+  const buildingProperties = currentBldId
+    ? allProperties.filter((p) => {
+        const pBldId =
+          p.building?.building_id ||
+          p.building?.id ||
+          p.property?.building_id ||
+          p.floor?.building_id ||
+          p.location?.building_id;
+        return pBldId === currentBldId;
+      })
+    : allProperties;
+  const buildingFloors = currentBldId
+    ? allFloors.filter((f) => f.building_id === currentBldId)
+    : allFloors;
+
   const handleBuildingClick = (buildingId: string) => {
     setViewModeState('3d');
     setTransitionNotification(`Transformed Map into 3D Building Model for ${buildingId}`);
@@ -274,8 +291,8 @@ export const MapPageView: React.FC<MapPageViewProps> = ({
             <div className="h-[480px] w-full">
               <ThreeCanvas
                 enrichedProperty={enrichedProperty}
-                allProperties={allProperties}
-                allFloors={allFloors}
+                allProperties={buildingProperties}
+                allFloors={buildingFloors}
                 isSelected={isSelected}
                 onSelectProperty={onSelectProperty}
                 explodedOffset={explodedOffset}
@@ -425,8 +442,8 @@ export const MapPageView: React.FC<MapPageViewProps> = ({
               <div className="h-[460px] w-full">
                 <ThreeCanvas
                   enrichedProperty={enrichedProperty}
-                  allProperties={allProperties}
-                  allFloors={allFloors}
+                  allProperties={buildingProperties}
+                  allFloors={buildingFloors}
                   isSelected={isSelected}
                   onSelectProperty={onSelectProperty}
                   explodedOffset={explodedOffset}

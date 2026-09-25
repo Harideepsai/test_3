@@ -5,6 +5,7 @@ import { PropertyInfoPanel } from './PropertyInfoPanel';
 import { LeafletMap } from './LeafletMap';
 import { cadastreService } from '../services/cadastreService';
 import { parseCoordinatesOrUrl } from './LocationSearchHeader';
+import { api } from '../services/api';
 import {
   Box,
   Layers,
@@ -55,13 +56,49 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
   const [showRuler, setShowRuler] = useState<boolean>(true);
   const [filterFloor, setFilterFloor] = useState<number | 'ALL'>('ALL');
 
+  // Helper to strictly isolate flats belonging ONLY to the displaying building
+  const getFlatsForBuilding = useCallback(
+    (properties: EnrichedProperty[], bld: Building | null): EnrichedProperty[] => {
+      if (!bld) return properties;
+      const bldId = bld.building_id || bld.id;
+      if (!bldId) return properties;
+      const filtered = properties.filter((p) => {
+        const propBldId =
+          p.building?.building_id ||
+          p.building?.id ||
+          p.property?.building_id ||
+          p.floor?.building_id ||
+          p.location?.building_id;
+        return propBldId === bldId;
+      });
+      return filtered.length > 0 ? filtered : properties;
+    },
+    []
+  );
+
+  const getFloorsForBuilding = useCallback(
+    (floors: Floor[], bld: Building | null): Floor[] => {
+      if (!bld) return floors;
+      const bldId = bld.building_id || bld.id;
+      if (!bldId) return floors;
+      const filtered = floors.filter((f) => f.building_id === bldId);
+      return filtered.length > 0 ? filtered : floors;
+    },
+    []
+  );
+
   // Active Building & Dynamic Property State
   const initialLat = enrichedProperty?.location?.latitude ?? enrichedProperty?.building?.latitude ?? 17.443372;
   const initialLng = enrichedProperty?.location?.longitude ?? enrichedProperty?.building?.longitude ?? 78.541003;
 
-  const [activeBuilding, setActiveBuilding] = useState<Building | null>(enrichedProperty?.building || null);
-  const [displayProperties, setDisplayProperties] = useState<EnrichedProperty[]>(allProperties);
-  const [displayFloors, setDisplayFloors] = useState<Floor[]>(allFloors);
+  const initialBuilding = enrichedProperty?.building || allProperties[0]?.building || null;
+  const [activeBuilding, setActiveBuilding] = useState<Building | null>(initialBuilding);
+  const [displayProperties, setDisplayProperties] = useState<EnrichedProperty[]>(() =>
+    getFlatsForBuilding(allProperties, initialBuilding)
+  );
+  const [displayFloors, setDisplayFloors] = useState<Floor[]>(() =>
+    getFloorsForBuilding(allFloors, initialBuilding)
+  );
   const [currentSelectedId, setCurrentSelectedId] = useState<string>(selectedPropertyId);
 
   // Coordinate Search State
@@ -95,14 +132,18 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
   // Keep displayProperties and displayFloors in sync with props when not overridden by custom coordinate search
   useEffect(() => {
     if (searchStatus.type === 'idle') {
-      setDisplayProperties(allProperties);
-      setDisplayFloors(allFloors);
-      setActiveBuilding(enrichedProperty?.building || null);
-      if (allProperties.length > 0 && !allProperties.some((p) => p.property.property_id === currentSelectedId)) {
-        setCurrentSelectedId(allProperties[0].property.property_id);
+      const bld = enrichedProperty?.building || allProperties[0]?.building || null;
+      setActiveBuilding(bld);
+      const bldProps = getFlatsForBuilding(allProperties, bld);
+      const bldFloors = getFloorsForBuilding(allFloors, bld);
+
+      setDisplayProperties(bldProps);
+      setDisplayFloors(bldFloors);
+      if (bldProps.length > 0 && !bldProps.some((p) => p.property.property_id === currentSelectedId)) {
+        setCurrentSelectedId(bldProps[0].property.property_id);
       }
     }
-  }, [allProperties, allFloors, enrichedProperty, searchStatus.type]);
+  }, [allProperties, allFloors, enrichedProperty, searchStatus.type, getFlatsForBuilding, getFloorsForBuilding]);
 
   // Derived current active property
   const currentActiveProperty: EnrichedProperty | null =
@@ -125,10 +166,12 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
         const result: SpatialLookupResult = await cadastreService.lookupBuildingByCoordinates(lat, lng, radius);
 
         if (result.found && result.building) {
-          // Registered 3D Building Located
+          // Registered 3D Building Located within radius
           const bld = result.building;
-          const foundProperties = result.allProperties || [];
-          const foundFloors = result.allFloors || [];
+          const rawProps = result.allProperties && result.allProperties.length > 0 ? result.allProperties : allProperties;
+          const rawFloors = result.allFloors && result.allFloors.length > 0 ? result.allFloors : allFloors;
+          const foundProperties = getFlatsForBuilding(rawProps, bld);
+          const foundFloors = getFloorsForBuilding(rawFloors, bld);
 
           setActiveBuilding(bld);
           setDisplayProperties(foundProperties);
@@ -145,21 +188,54 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
           setSearchStatus({
             type: 'success',
             message: `Official 3D Cadastral Model located for Survey No. ${bld.survey_number}`,
-            buildingName: `Building ${bld.building_id || bld.id} (${bld.village_or_locality || 'Urban Cadastre'})`,
+            buildingName: bld.building_name || bld.name || `Building ${bld.building_id || bld.id}`,
             surveyNumber: bld.survey_number,
             distance: result.distanceMeters ?? 0.0,
           });
+        } else if (result.nearestAvailableBuilding && result.nearestDistanceMeters && result.nearestDistanceMeters <= 350) {
+          // Near-match (within 350m buffer) - auto-load closest registered 3D building
+          const bld = result.nearestAvailableBuilding;
+          const fullEnriched = await cadastreService.getEnrichedBuildingData(bld.building_id || bld.id);
+          const foundProperties = getFlatsForBuilding(fullEnriched.allProperties || allProperties, bld);
+          const foundFloors = getFloorsForBuilding(fullEnriched.allFloors || allFloors, bld);
+
+          setActiveBuilding(bld);
+          setDisplayProperties(foundProperties);
+          setDisplayFloors(foundFloors);
+          setIsEmptyParcel(false);
+          setFilterFloor('ALL');
+
+          if (fullEnriched.allProperties.length > 0) {
+            const firstId = fullEnriched.allProperties[0].property.property_id;
+            setCurrentSelectedId(firstId);
+            onSelectProperty(firstId);
+          }
+
+          setSearchStatus({
+            type: 'success',
+            message: `Matched nearest registered 3D Cadastral Building (${result.nearestDistanceMeters}m from queried coordinates)`,
+            buildingName: bld.building_name || bld.name || `Building ${bld.building_id || bld.id}`,
+            surveyNumber: bld.survey_number,
+            distance: result.nearestDistanceMeters,
+          });
         } else {
-          // Unmapped Cadastral Parcel Coordinates
+          // Unmapped Cadastral Parcel Coordinates - display parcel footprint with quick option to extrude or view nearest
           setActiveBuilding(null);
           setDisplayProperties([]);
           setDisplayFloors([]);
           setIsEmptyParcel(true);
           setFilterFloor('ALL');
 
+          const nearestNote = result.nearestAvailableBuilding
+            ? ` Nearest registered building is ${result.nearestAvailableBuilding.building_name || result.nearestAvailableBuilding.building_id} (${result.nearestDistanceMeters}m away).`
+            : '';
+
           setSearchStatus({
             type: 'empty',
-            message: `Spatial coordinates pinpointed. No registered 3D building exists within ${radius}m. Displaying illuminated 3D parcel footprint.`,
+            message: `Spatial coordinates pinpointed.${nearestNote} Click "Extrude 3D Model on this Parcel" to generate an immediate volumetric model.`,
+            buildingName: result.nearestAvailableBuilding?.building_name || result.nearestAvailableBuilding?.building_id,
+            surveyNumber: result.nearestAvailableBuilding?.survey_number,
+            distance: result.nearestDistanceMeters,
           });
         }
       } catch (err: any) {
@@ -173,16 +249,41 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
   );
 
   // Form Submission Handler
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parsed = parseCoordinatesOrUrl(coordinateInput);
-    if (!parsed) {
-      setSearchError(
-        'Please enter valid numeric coordinates (e.g. 17.4485, 78.3748) or paste a valid Google Maps URL.'
-      );
+    const trimmed = coordinateInput.trim();
+    if (!trimmed) return;
+
+    const parsed = parseCoordinatesOrUrl(trimmed);
+    if (parsed) {
+      setSearchError(null);
+      executeCoordinateSearch(parsed.lat, parsed.lng, searchRadius);
       return;
     }
-    executeCoordinateSearch(parsed.lat, parsed.lng, searchRadius);
+
+    // If it's a shortened or full URL (e.g. maps.app.goo.gl, goo.gl/maps, etc.)
+    if (/^(https?:\/\/|maps\.app\.goo\.gl|goo\.gl|www\.google\.|google\.com\/maps)/i.test(trimmed)) {
+      setSearchError(null);
+      setIsSearching(true);
+      try {
+        const res = await api.resolveMapsUrl(trimmed);
+        if (res.success && typeof res.lat === 'number' && typeof res.lng === 'number') {
+          executeCoordinateSearch(res.lat, res.lng, searchRadius);
+          return;
+        } else {
+          setSearchError(res.error || 'Could not extract coordinates from this Google Maps link.');
+        }
+      } catch (err: any) {
+        setSearchError('Network error resolving Google Maps link.');
+      } finally {
+        setIsSearching(false);
+      }
+      return;
+    }
+
+    setSearchError(
+      'Please enter valid numeric coordinates (e.g. 17.4485, 78.3748) or paste a valid Google Maps URL.'
+    );
   };
 
   // Manual Separate Inputs Handler
@@ -237,9 +338,12 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
     setManualLat(lat.toFixed(5));
     setManualLng(lng.toFixed(5));
     setSearchedCoords({ lat, lng });
-    setActiveBuilding(enrichedProperty?.building || null);
-    setDisplayProperties(allProperties);
-    setDisplayFloors(allFloors);
+    const bld = enrichedProperty?.building || allProperties[0]?.building || null;
+    setActiveBuilding(bld);
+    const bldProps = getFlatsForBuilding(allProperties, bld);
+    const bldFloors = getFloorsForBuilding(allFloors, bld);
+    setDisplayProperties(bldProps);
+    setDisplayFloors(bldFloors);
     setIsEmptyParcel(false);
     setSearchError(null);
     setGpsNotice(null);
@@ -247,8 +351,8 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
       type: 'idle',
       message: 'Restored initial demonstration building model.',
     });
-    if (allProperties.length > 0) {
-      const firstId = allProperties[0].property.property_id;
+    if (bldProps.length > 0) {
+      const firstId = bldProps[0].property.property_id;
       setCurrentSelectedId(firstId);
       onSelectProperty(firstId);
     }
@@ -420,32 +524,37 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
     });
   };
 
-  // Quick Presets
+  // Quick Presets matching registered cadastral buildings
   const quickPresets = [
     {
-      label: '🏢 B001: Malkajgiri (Survey 3127)',
+      label: '🏢 Malkajgiri Enclave (B001)',
       coords: { lat: 17.443372, lng: 78.541003 },
-      desc: 'G+3 Multi-Unit Residential Building',
+      desc: 'Malkajgiri Municipal Enclave - Survey 3127 - G+4 Strata Model',
     },
     {
-      label: '🏢 B002: Cyber Towers (SY-402/1A)',
+      label: '🏢 Green Meadows (B999)',
       coords: { lat: 17.4485, lng: 78.3748 },
-      desc: 'G+4 Commercial / Residential Complex',
+      desc: 'Green Meadows Residency - Survey SY-TEST/99 - 3D GLB Model',
     },
     {
-      label: '🏢 B003: Green Heights (SY-188/P)',
-      coords: { lat: 17.4435, lng: 78.5418 },
-      desc: '4-Storey Gated Building Complex',
+      label: '🏢 Godavari Towers (B411)',
+      coords: { lat: 17.424346, lng: 78.650351 },
+      desc: 'Godavari Towers - Survey SY-132/2B - 4-Storey Extruded 3D Mesh',
     },
     {
-      label: '🏢 B004: Apex Sky View (SY-509/2)',
-      coords: { lat: 17.4442, lng: 78.5402 },
-      desc: '6-Storey Superstructure Model',
+      label: '🏢 Sri Balaji Heights (B466)',
+      coords: { lat: 17.422281, lng: 78.647516 },
+      desc: 'Sri Balaji Heights - Survey SY-829/2B - 4-Storey Strata Geometry',
+    },
+    {
+      label: '🏢 Cyber Park Complex (B648)',
+      coords: { lat: 17.423948, lng: 78.648350 },
+      desc: 'Cyber Park Commercial Complex - Survey SY-276/2B - G+4 Strata',
     },
     {
       label: '📍 Unmapped Parcel Centroid',
       coords: { lat: 17.45, lng: 78.38 },
-      desc: 'Illuminated 3D Parcel Boundary Target',
+      desc: 'Illuminated 3D Parcel Boundary Target (Instant Extrusion Available)',
     },
   ];
 
@@ -714,15 +823,35 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
             </div>
           </div>
 
-          <button
-            id="btn-extrude-sample-citizen"
-            type="button"
-            onClick={handleExtrudeSampleOnParcel}
-            className="px-3.5 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-          >
-            <Box className="w-3.5 h-3.5" />
-            <span>Extrude Sample 3D Model on this Parcel</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {searchStatus.buildingName && searchStatus.distance && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const allBlds = await cadastreService.getAllBuildings();
+                  const bld = allBlds.find(
+                    (b) => b.building_name === searchStatus.buildingName || b.building_id === searchStatus.buildingName
+                  );
+                  if (bld && typeof bld.latitude === 'number' && typeof bld.longitude === 'number') {
+                    executeCoordinateSearch(bld.latitude, bld.longitude, 100);
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-[#1e3a8a] hover:bg-blue-900 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>View Closest 3D Building ({searchStatus.distance}m)</span>
+              </button>
+            )}
+            <button
+              id="btn-extrude-sample-citizen"
+              type="button"
+              onClick={handleExtrudeSampleOnParcel}
+              className="px-3.5 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <Box className="w-3.5 h-3.5" />
+              <span>Extrude 3D Model on this Parcel</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -752,12 +881,15 @@ export const CombinedDemoView: React.FC<CombinedDemoViewProps> = ({
 
       {/* 3. APARTMENT UNIT QUICK SWITCHER (Synchronized to Loaded 3D Model) */}
       <div className="p-3.5 rounded-lg bg-white border border-slate-200 shadow-xs">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 font-mono">
             <Layers className="w-3.5 h-3.5 text-[#1e3a8a]" />
-            Apartment Unit Quick Switcher ({displayProperties.length} Units in Loaded 3D Model)
+            Apartment Unit Quick Switcher ({displayProperties.length} Flats in {activeBuilding ? (activeBuilding.building_name || `Building ${activeBuilding.building_id || activeBuilding.id}`) : 'Displaying Building'})
           </span>
-          <span className="text-[11px] text-slate-500 font-mono">Click any unit block to inspect strata & 3D ULPIN</span>
+          <span className="text-[10px] text-emerald-700 font-mono font-semibold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            Showing only displaying building flats
+          </span>
         </div>
 
         {displayProperties.length > 0 ? (

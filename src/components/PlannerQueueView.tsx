@@ -57,6 +57,13 @@ export const PlannerQueueView: React.FC<PlannerQueueViewProps> = ({
   const [isAuditingClashes, setIsAuditingClashes] = useState<boolean>(false);
   const [showSubsurface, setShowSubsurface] = useState<boolean>(true);
 
+  // 3D Player Interactive Controls & Options
+  const [plannerViewMode, setPlannerViewMode] = useState<'volumetric' | 'wireframe' | 'xray'>('volumetric');
+  const [plannerExplodedOffset, setPlannerExplodedOffset] = useState<number>(0);
+  const [plannerFilterFloor, setPlannerFilterFloor] = useState<number | 'ALL'>('ALL');
+  const [plannerShowRuler, setPlannerShowRuler] = useState<boolean>(true);
+  const [plannerShowTerrain, setPlannerShowTerrain] = useState<boolean>(false);
+
   // Rejection modal state
   const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
   const [rejectionRemarks, setRejectionRemarks] = useState<string>('');
@@ -274,16 +281,6 @@ export const PlannerQueueView: React.FC<PlannerQueueViewProps> = ({
             <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
-
-          {onOpenModelIngestion && (
-            <button
-              onClick={onOpenModelIngestion}
-              className="px-3 py-2 rounded-lg bg-[#1e3a8a] hover:bg-[#1e40af] text-white text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-blue-200" />
-              <span>+ Ingest Application</span>
-            </button>
-          )}
 
           <div className="px-3.5 py-1.5 rounded-lg bg-white border border-slate-200 shadow-xs text-center min-w-[72px]">
             <div className="text-base font-bold text-amber-800 font-mono">
@@ -776,39 +773,192 @@ export const PlannerQueueView: React.FC<PlannerQueueViewProps> = ({
                 )}
               </div>
 
-              {/* 3D WebGL Inspection Canvas */}
-              <div className="rounded-lg border border-slate-200 overflow-hidden bg-slate-50 relative">
-                <div className="p-2.5 bg-white border-b border-slate-200 flex items-center justify-between text-xs font-mono text-slate-700">
-                  <span className="flex items-center gap-1.5 font-bold">
-                    <Layers className="w-3.5 h-3.5 text-[#1e3a8a]" />
-                    Interactive 3D Cadastral Mesh Inspection (Three.js WebGL)
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    {enrichedData?.floors.length || 4} Vertical Strata &bull;{' '}
-                    {enrichedData?.properties.length || 8} Units &bull;{' '}
-                    {undergroundAssets.length} Underground Utilities
-                  </span>
+              {/* 3D WebGL Inspection Canvas & Full Municipal Audit Player */}
+              <div className="rounded-xl border border-slate-300 overflow-hidden bg-white shadow-md relative">
+                {/* Header with Building Info & Model Stats */}
+                <div className="p-3 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-slate-700">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-blue-100 text-[#1e3a8a] flex items-center justify-center font-bold">
+                      <Layers className="w-3.5 h-3.5 text-[#1e3a8a]" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900 block font-sans text-sm">
+                        {selectedBuilding.building_name || selectedBuilding.name || `Building ${selectedBuilding.building_id}`} &bull; 3D Audit Viewport
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        Survey No. {selectedBuilding.survey_number} &bull; {enrichedData?.floors.length || 4} Strata &bull; {enrichedData?.properties.length || 8} Registered Units
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a8a] border border-blue-200 text-[10px] font-mono font-bold">
+                      {undergroundAssets.length} Sub-surface Utilities
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-mono">
+                      WGS84 Datum
+                    </span>
+                  </div>
                 </div>
 
-                <div className="h-84 w-full relative">
+                {/* Comprehensive Options & Controls Ribbon */}
+                <div className="p-2.5 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  {/* Left: View Mode & Explode Slider */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* View Modes */}
+                    <div className="flex items-center bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setPlannerViewMode('volumetric')}
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                          plannerViewMode === 'volumetric'
+                            ? 'bg-[#1e3a8a] text-white shadow-xs font-semibold'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Solid 3D
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPlannerViewMode('xray')}
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                          plannerViewMode === 'xray'
+                            ? 'bg-[#1e3a8a] text-white shadow-xs font-semibold'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        X-Ray Glass
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPlannerViewMode('wireframe')}
+                        className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                          plannerViewMode === 'wireframe'
+                            ? 'bg-[#1e3a8a] text-white shadow-xs font-semibold'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Wireframe
+                      </button>
+                    </div>
+
+                    {/* Exploded Strata Slider */}
+                    <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-lg px-2.5 py-1 shadow-2xs">
+                      <span className="text-[11px] font-mono text-slate-600 font-medium">Explode:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.05"
+                        value={plannerExplodedOffset}
+                        onChange={(e) => setPlannerExplodedOffset(parseFloat(e.target.value))}
+                        className="w-20 sm:w-28 accent-[#1e3a8a] cursor-pointer"
+                        title="Explode floor levels vertically for individual strata inspection"
+                      />
+                      <span className="text-[10px] font-mono text-slate-500 w-8">
+                        {(plannerExplodedOffset * 5).toFixed(1)}m
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right: Strata Floor Filter & Feature Toggles */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Floor Selector Dropdown / Buttons */}
+                    <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg px-2 py-0.5 shadow-2xs">
+                      <span className="text-[11px] font-mono text-slate-600">Floor:</span>
+                      <select
+                        value={plannerFilterFloor}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setPlannerFilterFloor(v === 'ALL' ? 'ALL' : parseInt(v, 10));
+                        }}
+                        className="text-[11px] bg-transparent text-slate-800 font-semibold focus:outline-none cursor-pointer"
+                      >
+                        <option value="ALL">All Levels</option>
+                        {enrichedData?.floors.map((fl) => (
+                          <option key={fl.floor_id} value={fl.floor_number}>
+                            {fl.floor_name || (fl.floor_number < 0 ? `Basement B${Math.abs(fl.floor_number)}` : fl.floor_number === 0 ? 'Ground Floor' : `Floor ${fl.floor_number}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Subsurface Utilities Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowSubsurface(!showSubsurface)}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-2xs ${
+                        showSubsurface
+                          ? 'bg-amber-50 text-amber-900 border-amber-300 font-semibold'
+                          : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                      }`}
+                      title="Toggle underground utility network and clash detection volumes"
+                    >
+                      <span>Sub-surface</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${showSubsurface ? 'bg-amber-600' : 'bg-slate-300'}`} />
+                    </button>
+
+                    {/* Ruler / Dimension Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setPlannerShowRuler(!plannerShowRuler)}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shadow-2xs ${
+                        plannerShowRuler
+                          ? 'bg-blue-50 text-[#1e3a8a] border-blue-300 font-semibold'
+                          : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                      }`}
+                      title="Toggle 3D elevation ruler and height grid"
+                    >
+                      Ruler
+                    </button>
+
+                    {/* Terrain Mesh Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setPlannerShowTerrain(!plannerShowTerrain)}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shadow-2xs ${
+                        plannerShowTerrain
+                          ? 'bg-emerald-50 text-[#059669] border-emerald-300 font-semibold'
+                          : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                      }`}
+                      title="Toggle digital elevation terrain mesh"
+                    >
+                      Terrain
+                    </button>
+                  </div>
+                </div>
+
+                {/* Large 3D WebGL Viewport Window */}
+                <div className="h-[520px] sm:h-[580px] md:h-[620px] w-full relative bg-slate-50">
                   <ThreeCanvas
                     enrichedProperty={enrichedData?.properties[0] || null}
                     activeBuilding={selectedBuilding}
                     allProperties={enrichedData?.properties || []}
                     allFloors={enrichedData?.floors || []}
                     isSelected={true}
-                    viewMode="volumetric"
-                    showRuler={true}
+                    viewMode={plannerViewMode}
+                    explodedOffset={plannerExplodedOffset}
+                    onExplodedOffsetChange={setPlannerExplodedOffset}
+                    filterFloor={plannerFilterFloor}
+                    showRuler={plannerShowRuler}
+                    onToggleRuler={() => setPlannerShowRuler(!plannerShowRuler)}
                     showUnderground={showSubsurface}
                     onToggleUnderground={() => setShowSubsurface(!showSubsurface)}
                     undergroundAssets={undergroundAssets}
                     clashReport={clashReport}
+                    showTerrainMesh={plannerShowTerrain}
+                    onToggleTerrainMesh={() => setPlannerShowTerrain(!plannerShowTerrain)}
                   />
                 </div>
 
-                <div className="p-2 bg-white border-t border-slate-200 text-[11px] text-slate-600 flex items-center justify-between px-3 font-mono">
-                  <span>Audit Mode: Town Planner Wireframe + Strata Geometry</span>
-                  <span>Coordinates: {(selectedBuilding?.latitude ?? 17.4485).toFixed(5)}, {(selectedBuilding?.longitude ?? 78.3748).toFixed(5)}</span>
+                {/* Bottom Status Bar */}
+                <div className="p-2.5 bg-white border-t border-slate-200 text-[11px] text-slate-600 flex flex-wrap items-center justify-between px-3 font-mono gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Audit Mode: Statutory Municipal 3D Geometry & Volumetric Strata Inspection</span>
+                  </span>
+                  <span>
+                    Centroid: {(selectedBuilding?.latitude ?? 17.4485).toFixed(5)}°N, {(selectedBuilding?.longitude ?? 78.3748).toFixed(5)}°E &bull; Datum: EPSG:4326 / WGS84
+                  </span>
                 </div>
               </div>
 

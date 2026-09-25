@@ -10,8 +10,10 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   PlusCircle,
+  Loader2,
 } from 'lucide-react';
 import { isSupabaseConfigured, SUPABASE_URL } from '../supabaseClient';
+import { api } from '../services/api';
 
 export interface ParsedCoordinate {
   lat: number;
@@ -21,7 +23,12 @@ export interface ParsedCoordinate {
 
 export function parseCoordinatesOrUrl(input: string): ParsedCoordinate | null {
   if (!input || !input.trim()) return null;
-  const str = input.trim();
+  let str = input.trim();
+  try {
+    str = decodeURIComponent(str);
+  } catch {
+    // Keep raw string
+  }
 
   // 1. Google Maps @lat,lng format e.g. https://www.google.com/maps/@17.4485,78.3748,17z
   const atMatch = str.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
@@ -41,13 +48,27 @@ export function parseCoordinatesOrUrl(input: string): ParsedCoordinate | null {
     return { lat: parseFloat(d3d4Match[1]), lng: parseFloat(d3d4Match[2]), source: 'Google Maps 3D/4D coordinate token' };
   }
 
-  // 4. Google Maps /place/lat,lng or /place/lat+lng
+  // 4. DMS notation: e.g. 17°25'20.2"N 78°38'40.7"E
+  const dmsMatch = str.match(/(\d+)°(\d+)['\u2019]([\d.]+)["\u201D]([NS])\s*[+, ]\s*(\d+)°(\d+)['\u2019]([\d.]+)["\u201D]([EW])/i);
+  if (dmsMatch) {
+    const latDeg = parseFloat(dmsMatch[1]), latMin = parseFloat(dmsMatch[2]), latSec = parseFloat(dmsMatch[3]), latDir = dmsMatch[4].toUpperCase();
+    const lngDeg = parseFloat(dmsMatch[5]), lngMin = parseFloat(dmsMatch[6]), lngSec = parseFloat(dmsMatch[7]), lngDir = dmsMatch[8].toUpperCase();
+    let lat = latDeg + latMin / 60 + latSec / 3600;
+    if (latDir === 'S') lat = -lat;
+    let lng = lngDeg + lngMin / 60 + lngSec / 3600;
+    if (lngDir === 'W') lng = -lng;
+    if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng, source: 'DMS GPS Coordinates' };
+    }
+  }
+
+  // 5. Google Maps /place/lat,lng or /place/lat+lng
   const placeMatch = str.match(/place\/(-?\d+\.\d+)[,+](-?\d+\.\d+)/);
   if (placeMatch) {
     return { lat: parseFloat(placeMatch[1]), lng: parseFloat(placeMatch[2]), source: 'Google Maps /place/ link' };
   }
 
-  // 5. Raw decimal Lat, Lng pair: "17.4435, 78.5410", "17.4435; 78.5410", "17.4435° N, 78.5410° E"
+  // 6. Raw decimal Lat, Lng pair: "17.4435, 78.5410", "17.4435; 78.5410", "17.4435° N, 78.5410° E"
   const cleanStr = str.replace(/[°º]/g, '').trim();
   const cardinalMatch = cleanStr.match(/^\s*(-?\d+(?:\.\d+)?)\s*(?:[NnSs])?\s*[,; \t/]\s*(-?\d+(?:\.\d+)?)\s*(?:[EeWw])?\s*$/);
   if (cardinalMatch) {
@@ -86,6 +107,8 @@ export const LocationSearchHeader: React.FC<LocationSearchHeaderProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [parsedInfo, setParsedInfo] = useState<ParsedCoordinate | null>(null);
 
+  const [isResolving, setIsResolving] = useState<boolean>(false);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearchInput(val);
@@ -100,7 +123,7 @@ export const LocationSearchHeader: React.FC<LocationSearchHeaderProps> = ({
       setParseError(null);
     } else {
       setParsedInfo(null);
-      if (val.length > 5 && !val.includes(',') && !val.includes('@') && !val.includes('maps')) {
+      if (val.length > 5 && !val.includes(',') && !val.includes('@') && !val.includes('maps') && !val.includes('goo.gl')) {
         setParseError('Please provide latitude and longitude separated by comma (e.g., 17.4435, 78.5410) or paste a Google Maps URL.');
       } else {
         setParseError(null);
@@ -108,15 +131,40 @@ export const LocationSearchHeader: React.FC<LocationSearchHeaderProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parsed = parseCoordinatesOrUrl(searchInput);
-    if (!parsed) {
-      setParseError('Invalid format. Please enter GPS Coordinates (e.g., 17.4435, 78.5410) or a Google Maps URL.');
+    const trimmed = searchInput.trim();
+    if (!trimmed) return;
+
+    const parsed = parseCoordinatesOrUrl(trimmed);
+    if (parsed) {
+      setParseError(null);
+      onSearch({ lat: parsed.lat, lng: parsed.lng }, searchRadius);
       return;
     }
-    setParseError(null);
-    onSearch({ lat: parsed.lat, lng: parsed.lng }, searchRadius);
+
+    // Try resolving as a Google Maps URL (e.g. maps.app.goo.gl or goo.gl/maps)
+    if (/^(https?:\/\/|maps\.app\.goo\.gl|goo\.gl|www\.google\.|google\.com\/maps)/i.test(trimmed)) {
+      setIsResolving(true);
+      setParseError(null);
+      try {
+        const res = await api.resolveMapsUrl(trimmed);
+        if (res.success && typeof res.lat === 'number' && typeof res.lng === 'number') {
+          setParsedInfo({ lat: res.lat, lng: res.lng, source: res.source || 'Resolved Google Maps Link' });
+          onSearch({ lat: res.lat, lng: res.lng }, searchRadius);
+          return;
+        } else {
+          setParseError(res.error || 'Could not resolve coordinates from this link.');
+        }
+      } catch (err: any) {
+        setParseError('Network error resolving Google Maps link.');
+      } finally {
+        setIsResolving(false);
+      }
+      return;
+    }
+
+    setParseError('Invalid format. Please enter GPS Coordinates (e.g., 17.4435, 78.5410) or paste a Google Maps URL.');
   };
 
   const handleQuickSelect = (lat: number, lng: number, label: string) => {

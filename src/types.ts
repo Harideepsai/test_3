@@ -56,6 +56,8 @@ export interface Owner {
 export interface Building {
   id: string; // Internal UUID / PK
   building_id?: string; // e.g. "B001"
+  name?: string; // e.g. "Sri Krishna Residency"
+  building_name?: string; // e.g. "Sri Krishna Residency"
   ulpin?: string; // 3D ULPIN for building parcel
   application_number?: string; // Statutory Cadastral Application Number, e.g. "APP-2026-TS-SY3127-01"
   survey_number: string; // e.g. "SY-402/1A" or "3127"
@@ -353,6 +355,8 @@ export interface SpatialLookupResult {
   searchRadiusMeters: number;
   building?: Building | null;
   distanceMeters?: number;
+  nearestAvailableBuilding?: Building | null;
+  nearestDistanceMeters?: number;
   enrichedProperty?: EnrichedProperty | null;
   allProperties?: EnrichedProperty[];
   properties?: EnrichedProperty[];
@@ -367,6 +371,8 @@ export interface IngestionPayload {
   method: IngestionMethod;
   coordinates: { lat: number; lng: number };
   surveyNumber: string;
+  buildingName?: string;
+  building_name?: string;
   address: string;
   plotArea: number;
   // Common geometry options
